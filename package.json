@@ -1,0 +1,16 @@
+{
+  "name": "whatsapp-groq-llama-bot",
+  "version": "1.0.0",
+  "description": "A WhatsApp bot powered by Groq API and LLaMA using Baileys",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "6.7.17",
+    "axios": "^1.6.7",
+    "dotenv": "^16.3.1",
+    "pino": "^8.14.2",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
