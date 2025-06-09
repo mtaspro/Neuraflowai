@@ -1,17 +1,22 @@
-require('dotenv').config(); // এই লাইনটা index.js এর একদম শুরুতে দাও
+require('dotenv').config();
 const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const P = require('pino');
-const axios = require('axios');
 const qrcode = require('qrcode-terminal');
+const { chat } = require('./llm');
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const {
+  loadMemory,
+  getHistory,
+  updateHistory,
+  clearHistory
+} = require('./memory');
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-
   const sock = makeWASocket({
     auth: state,
     logger: P({ level: 'silent' }),
+    printQRInTerminal: true,
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -25,58 +30,68 @@ async function startBot() {
 
     if (isFromMe) return;
 
+    const history = getHistory(from);
+
     const text =
       msg.message.conversation ||
       msg.message.extendedTextMessage?.text ||
       '';
 
-    if (!text) return;
+    if (!text.trim()) return;
 
+    const isGroup = from.endsWith('@g.us');
+    const sender = msg.key.participant || msg.key.remoteJid;
+
+    // Only reply in group if message starts with #
+    if (isGroup && !text.trim().startsWith('#')) return;
+
+    // /clear command
+    if (text.trim().toLowerCase() === '/clear') {
+      clearHistory(from);
+      await sock.sendMessage(from, { text: "Chat history cleared." }, { quoted: msg });
+      return;
+    }
+
+    const lowerText = text.toLowerCase();
+    const isIntroQuestion = /(who are you|tui ke|tumi ke|mahtab ke|neuraflow)/.test(lowerText);
     console.log(`📩 Message from ${from}: ${text}`);
 
+    const contextMessages = [
+      ...history,
+      { role: 'user', content: text }
+    ];
+
     try {
-      const groqRes = await axios.post(
-        'https://api.groq.com/openai/v1/chat/completions',
-        {
-          model: 'llama3-8b-8192', // বা llama3-70b-8192
-          messages: [{ role: 'user', content: text }],
-          temperature: 0.7,
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${GROQ_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      // Show typing indicator
+      await sock.sendPresenceUpdate('composing', from);
 
-      const reply = groqRes.data.choices[0]?.message?.content?.trim();
+      const reply = await chat(contextMessages, isIntroQuestion);
+      if (!reply) return;
 
-      if (reply) {
-        await sock.sendMessage(from, { text: reply });
-      }
-    } catch (err) {
-      console.error("❌ Groq error:", err.response?.data || err.message);
+      updateHistory(from, text, reply);
+
       await sock.sendMessage(from, {
-        text: "🤖 Bot e error hoise. Kisu khon por abar try koro!",
-      });
+        text: isGroup ? `@${sender.split('@')[0]} ${reply}` : reply,
+        mentions: isGroup ? [sender] : []
+      }, { quoted: msg });
+
+    } catch (error) {
+      console.error("❌ AI error:", error?.response?.data || error.message);
+      await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your message. Please try again." }, { quoted: msg });
     }
   });
 
-  sock.ev.on('connection.update', (update) => {
-    const { connection, qr } = update;
-
-    if (qr) {
-      qrcode.generate(qr, { small: true });
-    }
-
-    if (connection === 'open') {
-      console.log('✅ Connected to WhatsApp!');
-    } else if (connection === 'close') {
-      console.log('❌ Connection closed. Reconnecting...');
-      startBot(); // Reconnect
+  sock.ev.on('connection.update', ({ connection, qr }) => {
+    if (qr) qrcode.generate(qr, { small: true });
+    if (connection === 'open') console.log('✅ Connected to WhatsApp!');
+    else if (connection === 'close') {
+      console.log('🔁 Connection closed. Reconnecting...');
+      startBot();
     }
   });
 }
+
+// Start bot function এর শুরুতে মেমরি লোড করো
+loadMemory();
 
 startBot();

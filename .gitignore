@@ -138,3 +138,5 @@ dist
 auth/
 auth_info/
 node_modules/
+memory.json
+downloads/
