@@ -3,6 +3,8 @@ const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysocket
 const P = require('pino');
 const qrcode = require('qrcode-terminal');
 const { chat } = require('./llm');
+const { serperSearch } = require('./serperSearch');
+const { addNote, addTodo, addJournalEntry, listNotes, listTodos, getTodayJournalEntry, searchNotesByKeyword } = require('./notionExamples');
 
 const {
   loadMemory,
@@ -10,6 +12,10 @@ const {
   updateHistory,
   clearHistory
 } = require('./memory');
+
+const notesDbId = process.env.NOTION_NOTES_DATABASE_ID;
+const todoDbId = process.env.NOTION_TODO_DATABASE_ID;
+const journalDbId = process.env.NOTION_JOURNAL_DATABASE_ID;
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('auth_info');
@@ -79,6 +85,22 @@ async function startBot() {
       console.error("❌ AI error:", error?.response?.data || error.message);
       await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your message. Please try again." }, { quoted: msg });
     }
+
+    if (text.toLowerCase().startsWith('/search ')) {
+      const query = text.slice(8).trim();
+      const results = await serperSearch(query);
+      await sock.sendMessage(from, { text: results }, { quoted: msg });
+      return;
+    }
+
+    // Example: When user sends /note command
+    await addNote(notesDbId, noteTitle, noteContent);
+
+    // Example: When user sends /todo command
+    await addTodo(todoDbId, todoTask, false);
+
+    // Example: When user sends /journal command
+    await addJournalEntry(journalDbId, journalText);
   });
 
   sock.ev.on('connection.update', ({ connection, qr }) => {
