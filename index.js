@@ -48,42 +48,43 @@ async function startBot() {
     const isGroup = from.endsWith('@g.us');
     const sender = msg.key.participant || msg.key.remoteJid;
 
-    // Only reply in group if message starts with #
-    if (isGroup && !text.trim().startsWith('#')) return;
+    // Only respond with AI in group if message starts with @neuraflow
+    if (isGroup && text.trim().toLowerCase().startsWith('@n')) {
+      const lowerText = text.toLowerCase();
+      const isIntroQuestion = /(who are you|tui ke|tumi ke|mahtab ke|neuraflow)/.test(lowerText);
+      console.log(`📩 Message from ${from}: ${text}`);
 
-    // /clear command
+      const contextMessages = [
+        ...history,
+        { role: 'user', content: text }
+      ];
+
+      try {
+        // Show typing indicator
+        await sock.sendPresenceUpdate('composing', from);
+
+        const reply = await chat(contextMessages, isIntroQuestion);
+        if (!reply) return;
+
+        updateHistory(from, text, reply);
+
+        await sock.sendMessage(from, {
+          text: `@${sender.split('@')[0]} ${reply}`,
+          mentions: [sender]
+        }, { quoted: msg });
+
+      } catch (error) {
+        console.error("❌ AI error:", error?.response?.data || error.message);
+        await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your message. Please try again." }, { quoted: msg });
+      }
+      return;
+    }
+
+    // Command handlers (work in both group and private chat)
     if (text.trim().toLowerCase() === '/clear') {
       clearHistory(from);
       await sock.sendMessage(from, { text: "Chat history cleared." }, { quoted: msg });
       return;
-    }
-
-    const lowerText = text.toLowerCase();
-    const isIntroQuestion = /(who are you|tui ke|tumi ke|mahtab ke|neuraflow)/.test(lowerText);
-    console.log(`📩 Message from ${from}: ${text}`);
-
-    const contextMessages = [
-      ...history,
-      { role: 'user', content: text }
-    ];
-
-    try {
-      // Show typing indicator
-      await sock.sendPresenceUpdate('composing', from);
-
-      const reply = await chat(contextMessages, isIntroQuestion);
-      if (!reply) return;
-
-      updateHistory(from, text, reply);
-
-      await sock.sendMessage(from, {
-        text: isGroup ? `@${sender.split('@')[0]} ${reply}` : reply,
-        mentions: isGroup ? [sender] : []
-      }, { quoted: msg });
-
-    } catch (error) {
-      console.error("❌ AI error:", error?.response?.data || error.message);
-      await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your message. Please try again." }, { quoted: msg });
     }
 
     if (text.toLowerCase().startsWith('/search ')) {
@@ -93,14 +94,54 @@ async function startBot() {
       return;
     }
 
-    // Example: When user sends /note command
-    await addNote(notesDbId, noteTitle, noteContent);
+    // /note command
+    if (text.toLowerCase().startsWith('/note ')) {
+      const [title, ...contentArr] = text.slice(6).split('|');
+      const content = contentArr.join('|').trim();
+      if (!title || !content) {
+        await sock.sendMessage(from, { text: "Usage: /note Title | Content" }, { quoted: msg });
+        return;
+      }
+      try {
+        await addNote(notesDbId, title.trim(), content);
+        await sock.sendMessage(from, { text: "Note added to Notion." }, { quoted: msg });
+      } catch (err) {
+        await sock.sendMessage(from, { text: "Failed to add note." }, { quoted: msg });
+      }
+      return;
+    }
 
-    // Example: When user sends /todo command
-    await addTodo(todoDbId, todoTask, false);
+    // /todo command
+    if (text.toLowerCase().startsWith('/todo ')) {
+      const task = text.slice(6).trim();
+      if (!task) {
+        await sock.sendMessage(from, { text: "Usage: /todo Task" }, { quoted: msg });
+        return;
+      }
+      try {
+        await addTodo(todoDbId, task, false);
+        await sock.sendMessage(from, { text: "Todo added to Notion." }, { quoted: msg });
+      } catch (err) {
+        await sock.sendMessage(from, { text: "Failed to add todo." }, { quoted: msg });
+      }
+      return;
+    }
 
-    // Example: When user sends /journal command
-    await addJournalEntry(journalDbId, journalText);
+    // /journal command
+    if (text.toLowerCase().startsWith('/journal ')) {
+      const entry = text.slice(9).trim();
+      if (!entry) {
+        await sock.sendMessage(from, { text: "Usage: /journal Your journal entry" }, { quoted: msg });
+        return;
+      }
+      try {
+        await addJournalEntry(journalDbId, entry);
+        await sock.sendMessage(from, { text: "Journal entry added to Notion." }, { quoted: msg });
+      } catch (err) {
+        await sock.sendMessage(from, { text: "Failed to add journal entry." }, { quoted: msg });
+      }
+      return;
+    }
   });
 
   sock.ev.on('connection.update', ({ connection, qr }) => {
