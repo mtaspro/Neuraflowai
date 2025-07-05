@@ -17,6 +17,17 @@ const notesDbId = process.env.NOTION_NOTES_DATABASE_ID;
 const todoDbId = process.env.NOTION_TODO_DATABASE_ID;
 const journalDbId = process.env.NOTION_JOURNAL_DATABASE_ID;
 
+// --- Group members cache and fetch function ---
+let groupMetaCache = {};
+
+async function getGroupMembers(sock, groupId) {
+  if (!groupMetaCache[groupId]) {
+    const meta = await sock.groupMetadata(groupId);
+    groupMetaCache[groupId] = meta.participants;
+  }
+  return groupMetaCache[groupId];
+}
+
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('auth_info');
   const sock = makeWASocket({
@@ -48,9 +59,35 @@ async function startBot() {
     const isGroup = from.endsWith('@g.us');
     const sender = msg.key.participant || msg.key.remoteJid;
 
-    // Only respond with AI in group if message starts with @neuraflow
+    // --- Group special commands ---
     if (isGroup && text.trim().toLowerCase().startsWith('@n')) {
       const lowerText = text.toLowerCase();
+      const userQuery = lowerText.replace(/^@n\s*/, '');
+
+      // Show last few messages in memory
+      if (userQuery.startsWith('history') || userQuery.startsWith('show memory')) {
+        const historyArr = getHistory(from) || [];
+        if (historyArr.length === 0) {
+          await sock.sendMessage(from, { text: "No history found.", mentions: [sender] }, { quoted: msg });
+          return;
+        }
+        let historyText = historyArr.map((h, i) => `${i + 1}. ${h.role === 'user' ? '👤' : '🤖'}: ${h.content}`).join('\n');
+        await sock.sendMessage(from, { text: `Last ${historyArr.length} messages in memory:\n${historyText}`, mentions: [sender] }, { quoted: msg });
+        return;
+      }
+
+      // List group members
+      if (userQuery.startsWith('members')) {
+        const members = await getGroupMembers(sock, from);
+        const memberMentions = members.map(m => `@${m.id.split('@')[0]}`).join(', ');
+        await sock.sendMessage(from, {
+          text: `Group members:\n${memberMentions}`,
+          mentions: members.map(m => m.id)
+        }, { quoted: msg });
+        return;
+      }
+
+      // --- AI reply logic ---
       const isIntroQuestion = /(who are you|tui ke|tumi ke|mahtab ke|neuraflow)/.test(lowerText);
       console.log(`📩 Message from ${from}: ${text}`);
 
@@ -66,7 +103,7 @@ async function startBot() {
         const reply = await chat(contextMessages, isIntroQuestion);
         if (!reply) return;
 
-        updateHistory(from, text, reply);
+        updateHistory(from, text, reply, sender);
 
         await sock.sendMessage(from, {
           text: `@${sender.split('@')[0]} ${reply}`,
@@ -80,7 +117,7 @@ async function startBot() {
       return;
     }
 
-    // Command handlers (work in both group and private chat)
+    // --- Command handlers (work in both group and private chat) ---
     if (text.trim().toLowerCase() === '/clear') {
       clearHistory(from);
       await sock.sendMessage(from, { text: "Chat history cleared." }, { quoted: msg });
