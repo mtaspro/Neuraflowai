@@ -103,7 +103,7 @@ async function startBot() {
         const reply = await chat(contextMessages, isIntroQuestion);
         if (!reply) return;
 
-        updateHistory(from, text, reply, sender);
+        updateHistory(from, text, reply);
 
         await sock.sendMessage(from, {
           text: `@${sender.split('@')[0]} ${reply}`,

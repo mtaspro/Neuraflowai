@@ -31,10 +31,10 @@ function getHistory(userId) {
   return memory.get(userId) || [];
 }
 
-// 📝 Update conversation history
-function updateHistory(userId, userMsg, botReply, senderId) {
+// 📝 Update conversation history (NO sender info)
+function updateHistory(userId, userMsg, botReply) {
   let arr = memory.get(userId) || [];
-  arr.push({ role: 'user', content: userMsg, sender: senderId });
+  arr.push({ role: 'user', content: userMsg });
   arr.push({ role: 'assistant', content: botReply });
   if (arr.length > MAX_HISTORY * 2) arr = arr.slice(-MAX_HISTORY * 2);
   memory.set(userId, arr);
