@@ -1,107 +1,53 @@
-const { createPage, updatePage } = require('./notionClient');
+const { createPage, queryDatabase } = require('./notionClient');
 
-// Example: Add a note to a Notion database
-async function addNote(databaseId, title, content) {
-  const properties = {
-    Name: { title: [{ text: { content: title } }] },
-    Content: { rich_text: [{ text: { content } }] },
-    Type: { select: { name: 'Note' } },
-    Date: { date: { start: new Date().toISOString() } }
-  };
-  return await createPage(databaseId, properties);
+const dbMap = {
+  Language: process.env.DB_LANGUAGE,
+  ICT: process.env.DB_ICT,
+  Mathematics: process.env.DB_MATH,
+  Physics: process.env.DB_PHYSICS,
+  Chemistry: process.env.DB_CHEMISTRY,
+  Biology: process.env.DB_BIO,
+};
+
+const linkPropMap = {
+  Language: "Link or File",
+  ICT: "Link or File",
+  Mathematics: "Link or File",
+  Physics: "Link or File",
+  Chemistry: "Link or File",
+  Biology: "Link or File",
+};
+
+/**
+ * Add a link to a subject database.
+ * @param {string} subject - e.g. "Language", "Physics"
+ * @param {string} note
+ * @param {string} link
+ */
+async function addLinkToSubject(subject, note, link) {
+  const dbId = dbMap[subject];
+  const linkProp = linkPropMap[subject];
+  if (!dbId || !linkProp) throw new Error('Invalid subject');
+  return createPage(dbId, {
+    Name: { title: [{ text: { content: note } }] },
+    [linkProp]: { url: link },
+  });
 }
 
-// Example: Add a todo item
-async function addTodo(databaseId, task, done = false) {
-  const properties = {
-    Name: { title: [{ text: { content: task } }] },
-    Status: { checkbox: done },
-    Type: { select: { name: 'Todo' } },
-    Date: { date: { start: new Date().toISOString() } }
-  };
-  return await createPage(databaseId, properties);
+/**
+ * List all links from a subject database.
+ * @param {string} subject - e.g. "ICT"
+ * @returns {Promise<object[]>}
+ */
+async function listLinksFromSubject(subject) {
+  const dbId = dbMap[subject];
+  if (!dbId) throw new Error('Invalid subject');
+  return queryDatabase(dbId);
 }
 
-// Example: Add a journal entry
-async function addJournalEntry(databaseId, entry) {
-  const properties = {
-    Name: { title: [{ text: { content: `Journal: ${new Date().toLocaleDateString()}` } }] },
-    Content: { rich_text: [{ text: { content: entry } }] },
-    Type: { select: { name: 'Journal' } },
-    Date: { date: { start: new Date().toISOString() } }
-  };
-  return await createPage(databaseId, properties);
-}
-
-// In notionExamples.js
-async function listNotes(databaseId, filter = {}) {
-  try {
-    const response = await notion.databases.query({
-      database_id: databaseId,
-      filter: {
-        property: 'Type',
-        select: { equals: 'Note' },
-        ...filter
-      }
-    });
-    return response.results;
-  } catch (error) {
-    console.error('Notion listNotes error:', error.body || error.message);
-    throw error;
-  }
-}
-
-async function listTodos(databaseId, onlyPending = true) {
-  try {
-    const response = await notion.databases.query({
-      database_id: databaseId,
-      filter: {
-        and: [
-          { property: 'Type', select: { equals: 'Todo' } },
-          ...(onlyPending ? [{ property: 'Status', checkbox: { equals: false } }] : [])
-        ]
-      }
-    });
-    return response.results;
-  } catch (error) {
-    console.error('Notion listTodos error:', error.body || error.message);
-    throw error;
-  }
-}
-
-async function getTodayJournalEntry(databaseId) {
-  const today = new Date().toISOString().split('T')[0];
-  try {
-    const response = await notion.databases.query({
-      database_id: databaseId,
-      filter: {
-        and: [
-          { property: 'Type', select: { equals: 'Journal' } },
-          { property: 'Date', date: { equals: today } }
-        ]
-      }
-    });
-    return response.results[0] || null;
-  } catch (error) {
-    console.error('Notion getTodayJournalEntry error:', error.body || error.message);
-    throw error;
-  }
-}
-
-async function searchNotesByKeyword(databaseId, keyword) {
-  try {
-    const response = await notion.databases.query({
-      database_id: databaseId,
-      filter: {
-        property: 'Name',
-        title: { contains: keyword }
-      }
-    });
-    return response.results;
-  } catch (error) {
-    console.error('Notion searchNotesByKeyword error:', error.body || error.message);
-    throw error;
-  }
-}
-
-module.exports = { addNote, addTodo, addJournalEntry, listNotes, listTodos, getTodayJournalEntry, searchNotesByKeyword };
+module.exports = {
+  addLinkToSubject,
+  listLinksFromSubject,
+  dbMap,
+  linkPropMap,
+};

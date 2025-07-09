@@ -1,7 +1,7 @@
 const { Client } = require('@notionhq/client');
 
 // Initialize Notion client with API key from environment variables
-const notion = new Client({ auth: process.env.NOTION_API_KEY });
+const notion = new Client({ auth: process.env.NOTION_TOKEN });
 
 /**
  * Create a new page in a Notion database.
@@ -41,4 +41,23 @@ async function updatePage(pageId, properties) {
   }
 }
 
-module.exports = { createPage, updatePage };
+/**
+ * Query a Notion database (read).
+ * @param {string} databaseId
+ * @param {object} filter (optional)
+ * @returns {Promise<object[]>}
+ */
+async function queryDatabase(databaseId, filter = {}) {
+  try {
+    const response = await notion.databases.query({
+      database_id: databaseId,
+      filter,
+    });
+    return response.results;
+  } catch (error) {
+    console.error('Notion queryDatabase error:', error.body || error.message);
+    throw error;
+  }
+}
+
+module.exports = { createPage, updatePage, queryDatabase };

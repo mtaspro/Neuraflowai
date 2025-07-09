@@ -1,17 +1,18 @@
-const { addNote, addTodo, addJournalEntry } = require('./notionExamples');
-const databaseId = process.env.NOTION_DATABASE_ID;
+const { addLinkToSubject, listLinksFromSubject } = require('./notionExamples');
 
-// Add a note
-addNote(databaseId, "Meeting Notes", "Discussed project milestones.")
-  .then(page => console.log("Note added:", page.id))
+// Test adding a link to the "Language" database
+addLinkToSubject("Language", "Test Note", "https://example.com")
+  .then(page => console.log("Link added! Page ID:", page.id))
   .catch(console.error);
 
-// Add a todo
-addTodo(databaseId, "Buy groceries", false)
-  .then(page => console.log("Todo added:", page.id))
-  .catch(console.error);
-
-// Add a journal entry
-addJournalEntry(databaseId, "Today I learned about Notion API integration!")
-  .then(page => console.log("Journal entry added:", page.id))
+// List links from the "Language" database
+listLinksFromSubject("Language")
+  .then(links => {
+    links.forEach((n, i) => {
+      const title = n.properties.note?.title?.[0]?.plain_text || 'Untitled';
+      // Use the correct property for the link column:
+      const url = n.properties["Link or File"]?.url || n.properties["File or link"]?.url || n.properties["File or Link"]?.url || '';
+      console.log(`${i + 1}. ${title}: ${url}`);
+    });
+  })
   .catch(console.error);

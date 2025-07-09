@@ -1,10 +1,11 @@
 require('dotenv').config();
-const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, downloadMediaMessage } = require('@whiskeysockets/baileys');
 const P = require('pino');
 const qrcode = require('qrcode-terminal');
 const { chat } = require('./llm');
 const { serperSearch } = require('./serperSearch');
-const { addNote, addTodo, addJournalEntry, listNotes, listTodos, getTodayJournalEntry, searchNotesByKeyword } = require('./notionExamples');
+const { addNote, addTodo, addJournalEntry, addNoteToSubject, listNotesFromSubject, dbMap, addLinkToSubject, listLinksFromSubject, linkPropMap } = require('./notionExamples');
+const { extractTextFromImage } = require('./visionHandler');
 
 const {
   loadMemory,
@@ -49,9 +50,11 @@ async function startBot() {
 
     const history = getHistory(from);
 
+    // Support text from conversation, extendedTextMessage, or image caption
     const text =
       msg.message.conversation ||
       msg.message.extendedTextMessage?.text ||
+      msg.message.imageMessage?.caption || // <-- add this line
       '';
 
     if (!text.trim()) return;
@@ -59,6 +62,31 @@ async function startBot() {
     const isGroup = from.endsWith('@g.us');
     const sender = msg.key.participant || msg.key.remoteJid;
 
+    // --- OCR for image messages with @n in caption ---
+    if (
+      msg.message.imageMessage &&
+      text.trim().toLowerCase().startsWith('@n')
+    ) {
+      
+      
+      const stream = await downloadMediaMessage(
+        msg,
+        'buffer',
+        {},
+        { logger: sock.logger, reuploadRequest: sock.updateMediaMessage }
+      );
+      const buffer = Buffer.isBuffer(stream) ? stream : Buffer.from([]);
+      if (buffer.length > 0) {
+        const extractedText = await extractTextFromImage(buffer);
+        await sock.sendMessage(from, {
+          text: extractedText
+            ? `Extracted text:\n${extractedText}`
+            : "Couldn't extract any text from the image.",
+        }, { quoted: msg });
+        return;
+      }
+    }
+    
     // --- Group special commands ---
     if (isGroup && text.trim().toLowerCase().startsWith('@n')) {
       const lowerText = text.toLowerCase();
@@ -176,6 +204,91 @@ async function startBot() {
         await sock.sendMessage(from, { text: "Journal entry added to Notion." }, { quoted: msg });
       } catch (err) {
         await sock.sendMessage(from, { text: "Failed to add journal entry." }, { quoted: msg });
+      }
+      return;
+    }
+
+    // Add note: /addnote subject|title|content
+    if (text.toLowerCase().startsWith('/addnote ')) {
+      const [subject, title, ...contentArr] = text.slice(9).split('|');
+      const content = contentArr.join('|').trim();
+      if (!subject || !title || !content || !dbMap[subject.trim().toLowerCase()]) {
+        await sock.sendMessage(from, { text: "Usage: /addnote subject|title|content\nSubjects: " + Object.keys(dbMap).join(', ') }, { quoted: msg });
+        return;
+      }
+      try {
+        await addNoteToSubject(subject.trim(), title.trim(), content);
+        await sock.sendMessage(from, { text: `Note added to ${subject.trim()}.` }, { quoted: msg });
+      } catch (err) {
+        await sock.sendMessage(from, { text: "Failed to add note." }, { quoted: msg });
+      }
+      return;
+    }
+
+    // List notes: /listnotes subject
+    if (text.toLowerCase().startsWith('/listnotes ')) {
+      const subject = text.slice(10).trim().toLowerCase();
+      if (!dbMap[subject]) {
+        await sock.sendMessage(from, { text: "Usage: /listnotes subject\nSubjects: " + Object.keys(dbMap).join(', ') }, { quoted: msg });
+        return;
+      }
+      try {
+        const notes = await listNotesFromSubject(subject);
+        if (!notes.length) {
+          await sock.sendMessage(from, { text: "No notes found." }, { quoted: msg });
+          return;
+        }
+        let msgText = `Notes in ${subject}:\n` + notes.map((n, i) => {
+          const title = n.properties.Name?.title?.[0]?.plain_text || 'Untitled';
+          const content = n.properties.Content?.rich_text?.[0]?.plain_text || '';
+          return `${i + 1}. ${title}: ${content}`;
+        }).join('\n');
+        await sock.sendMessage(from, { text: msgText }, { quoted: msg });
+      } catch (err) {
+        await sock.sendMessage(from, { text: "Failed to list notes." }, { quoted: msg });
+      }
+      return;
+    }
+
+    // Add link: /addlink Subject|Note|URL
+    if (text.toLowerCase().startsWith('/addlink ')) {
+      const [subject, note, ...linkArr] = text.slice(9).split('|');
+      const link = linkArr.join('|').trim();
+      if (!subject || !note || !link || !dbMap[subject.trim()]) {
+        await sock.sendMessage(from, { text: "Usage: /addlink Subject|Note|URL\nSubjects: " + Object.keys(dbMap).join(', ') }, { quoted: msg });
+        return;
+      }
+      try {
+        await addLinkToSubject(subject.trim(), note.trim(), link);
+        await sock.sendMessage(from, { text: `Link added to ${subject.trim()}.` }, { quoted: msg });
+      } catch (err) {
+        await sock.sendMessage(from, { text: "Failed to add link." }, { quoted: msg });
+      }
+      return;
+    }
+
+    // List links: /listlinks Subject
+    if (text.toLowerCase().startsWith('/listlinks ')) {
+      const subject = text.slice(11).trim();
+      if (!dbMap[subject]) {
+        await sock.sendMessage(from, { text: "Usage: /listlinks Subject\nSubjects: " + Object.keys(dbMap).join(', ') }, { quoted: msg });
+        return;
+      }
+      try {
+        const links = await listLinksFromSubject(subject);
+        const linkProp = linkPropMap[subject];
+        if (!links.length) {
+          await sock.sendMessage(from, { text: "No links found." }, { quoted: msg });
+          return;
+        }
+        let msgText = `Links in ${subject}:\n` + links.map((n, i) => {
+          const title = n.properties.Name?.title?.[0]?.plain_text || 'Untitled';
+          const url = n.properties[linkProp]?.url || '';
+          return `${i + 1}. ${title}: ${url}`;
+        }).join('\n');
+        await sock.sendMessage(from, { text: msgText }, { quoted: msg });
+      } catch (err) {
+        await sock.sendMessage(from, { text: "Failed to list links." }, { quoted: msg });
       }
       return;
     }
