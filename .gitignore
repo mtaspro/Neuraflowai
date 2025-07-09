@@ -135,8 +135,6 @@ dist
 .yarn/install-state.gz
 .pnp.*
 .env
-auth/
-auth_info/
 node_modules/
 memory.json
 downloads/
