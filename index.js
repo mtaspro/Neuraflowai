@@ -8,12 +8,14 @@ const { serperSearch } = require('./serperSearch');
 const { addNote, addTodo, addJournalEntry, addNoteToSubject, listNotesFromSubject, dbMap, addLinkToSubject, listLinksFromSubject, linkPropMap } = require('./notionExamples');
 const { extractTextFromImage } = require('./visionHandler');
 
+// MongoDB-based managers
+const sessionManager = require('./sessionManager');
 const {
   loadMemory,
   getHistory,
   updateHistory,
   clearHistory
-} = require('./memory');
+} = require('./memoryManager');
 
 // Express server setup for Render deployment
 const app = express();
@@ -54,14 +56,25 @@ async function getGroupMembers(sock, groupId) {
 }
 
 async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+  // Initialize MongoDB session manager
+  await sessionManager.connect();
+  
+  // Create custom auth state using MongoDB
+  const authState = {
+    creds: await sessionManager.loadSession({ sessionId: 'whatsapp-bot' }),
+    keys: {}
+  };
+
   const sock = makeWASocket({
-    auth: state,
+    auth: authState,
     logger: P({ level: 'silent' }),
     printQRInTerminal: true,
   });
 
-  sock.ev.on('creds.update', saveCreds);
+  // Save credentials to MongoDB when updated
+  sock.ev.on('creds.update', async (creds) => {
+    await sessionManager.saveSession('whatsapp-bot', creds);
+  });
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify' || !messages[0]?.message) return;
@@ -72,7 +85,7 @@ async function startBot() {
 
     if (isFromMe) return;
 
-    const history = getHistory(from);
+    const history = await getHistory(from);
 
     // Support text from conversation, extendedTextMessage, or image caption
     const text =
@@ -118,7 +131,7 @@ async function startBot() {
 
       // Show last few messages in memory
       if (userQuery.startsWith('history') || userQuery.startsWith('show memory')) {
-        const historyArr = getHistory(from) || [];
+        const historyArr = await getHistory(from) || [];
         if (historyArr.length === 0) {
           await sock.sendMessage(from, { text: "No history found.", mentions: [sender] }, { quoted: msg });
           return;
@@ -155,7 +168,7 @@ async function startBot() {
         const reply = await chat(contextMessages, isIntroQuestion);
         if (!reply) return;
 
-        updateHistory(from, text, reply);
+        await updateHistory(from, text, reply);
 
         await sock.sendMessage(from, {
           text: `@${sender.split('@')[0]} ${reply}`,
@@ -171,7 +184,7 @@ async function startBot() {
 
     // --- Command handlers (work in both group and private chat) ---
     if (text.trim().toLowerCase() === '/clear') {
-      clearHistory(from);
+      await clearHistory(from);
       await sock.sendMessage(from, { text: "Chat history cleared." }, { quoted: msg });
       return;
     }
@@ -328,7 +341,15 @@ async function startBot() {
   });
 }
 
-// Start bot function এর শুরুতে মেমরি লোড করো
-loadMemory();
+// Initialize MongoDB and start bot
+async function initializeBot() {
+  try {
+    await loadMemory();
+    await startBot();
+  } catch (error) {
+    console.error('❌ Failed to initialize bot:', error);
+    process.exit(1);
+  }
+}
 
-startBot();
+initializeBot();
