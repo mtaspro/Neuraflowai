@@ -365,4 +365,21 @@ async function initializeBot() {
   }
 }
 
+// Time-based condition for Dhaka (UTC+6)
+(function checkDhakaActiveHours() {
+  const now = new Date();
+  // Convert to UTC+6 (Dhaka time)
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const dhaka = new Date(utc + (6 * 60 * 60 * 1000));
+  const hour = dhaka.getHours();
+  const minute = dhaka.getMinutes();
+  // Active hours: 6:00 (6AM) to 23:59 (11:59PM)
+  if (hour >= 6 && (hour < 24)) {
+    console.log('✅ Within active hours. Starting bot...');
+  } else {
+    console.log('⏰ Outside active hours. Exiting bot.');
+    process.exit(0);
+  }
+})();
+
 initializeBot();

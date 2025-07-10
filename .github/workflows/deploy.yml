@@ -1,0 +1,15 @@
+name: Daily Render Redeploy
+
+on:
+  schedule:
+    # 6AM Bangladesh time is 0:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render Deploy Hook
+        run: |
+          curl -X POST "https://api.render.com/deploy/srv-d1nmkds9c44c73egu240?key=YpbSFo47e0w" 
