@@ -16,6 +16,7 @@ const {
   updateHistory,
   clearHistory
 } = require('./memoryManager');
+const { writeAuthFolder } = require('./authFolderHelper');
 
 // Express server setup for Render deployment
 const app = express();
@@ -341,10 +342,22 @@ async function startBot() {
   });
 }
 
+// Restore auth_info folder from MongoDB before Baileys init
+async function restoreAuthFolderFromMongo() {
+  const folderObj = await sessionManager.loadAuthFolder('auth_info');
+  if (folderObj) {
+    writeAuthFolder(folderObj);
+    console.log('✅ Restored auth_info folder from MongoDB');
+  } else {
+    console.warn('⚠️ No auth_info found in MongoDB. You may need to scan QR and run run-once.js.');
+  }
+}
+
 // Initialize MongoDB and start bot
 async function initializeBot() {
   try {
     await loadMemory();
+    await restoreAuthFolderFromMongo();
     await startBot();
   } catch (error) {
     console.error('❌ Failed to initialize bot:', error);

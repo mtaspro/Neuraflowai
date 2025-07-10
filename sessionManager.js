@@ -10,19 +10,17 @@ class SessionManager {
   }
 
   async connect() {
+    if (this.isConnected) return;
     try {
       const connectionString = process.env.MONGODB_URI || 'mongodb+srv://mowama36:<db_password>@neuraflow-bot.9fmavbm.mongodb.net/?retryWrites=true&w=majority&appName=neuraflow-bot';
-      
       this.client = new MongoClient(connectionString, {
         useNewUrlParser: true,
         useUnifiedTopology: true,
       });
-
       await this.client.connect();
       this.db = this.client.db('whatsapp-bot');
       this.collection = this.db.collection('sessions');
       this.isConnected = true;
-      
       console.log('✅ MongoDB Session Manager connected successfully');
     } catch (error) {
       console.error('❌ MongoDB Session Manager connection failed:', error);
@@ -36,6 +34,29 @@ class SessionManager {
       this.isConnected = false;
       console.log('🔌 MongoDB Session Manager disconnected');
     }
+  }
+
+  // Save the entire auth folder (as { filename: fileContent })
+  async saveAuthFolder(folderObj, sessionId = 'auth_info') {
+    if (!this.isConnected) await this.connect();
+    await this.collection.updateOne(
+      { sessionId },
+      { $set: { sessionId, folderObj, updatedAt: new Date() } },
+      { upsert: true }
+    );
+    console.log(`💾 Saved auth folder to MongoDB (sessionId: ${sessionId})`);
+  }
+
+  // Load the entire auth folder (returns { filename: fileContent })
+  async loadAuthFolder(sessionId = 'auth_info') {
+    if (!this.isConnected) await this.connect();
+    const doc = await this.collection.findOne({ sessionId });
+    if (doc && doc.folderObj) {
+      console.log(`📂 Loaded auth folder from MongoDB (sessionId: ${sessionId})`);
+      return doc.folderObj;
+    }
+    console.log(`⚠️ No auth folder found in MongoDB (sessionId: ${sessionId})`);
+    return null;
   }
 
   // Baileys session storage methods
