@@ -6,6 +6,7 @@ const MEMORY_FILE = path.join(__dirname, 'memory.json');
 let memory = new Map();
 
 const MAX_HISTORY = 10; // Keep only the last 10 messages per user
+const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
 
 // 🔄 Load memory from file
 function loadMemory() {
@@ -34,8 +35,10 @@ function getHistory(userId) {
 // 📝 Update conversation history (NO sender info)
 function updateHistory(userId, userMsg, botReply) {
   let arr = memory.get(userId) || [];
-  arr.push({ role: 'user', content: userMsg });
-  arr.push({ role: 'assistant', content: botReply });
+  arr.push({ role: 'user', content: userMsg, timestamp: Date.now() });
+  arr.push({ role: 'assistant', content: botReply, timestamp: Date.now() });
+  const now = Date.now();
+  arr = arr.filter(m => !m.timestamp || (now - m.timestamp <= SEVEN_DAYS));
   if (arr.length > MAX_HISTORY * 2) arr = arr.slice(-MAX_HISTORY * 2);
   memory.set(userId, arr);
   saveMemory();

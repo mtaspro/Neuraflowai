@@ -1,4 +1,5 @@
 require('dotenv').config();
+const express = require('express');
 const { default: makeWASocket, useMultiFileAuthState, downloadMediaMessage } = require('@whiskeysockets/baileys');
 const P = require('pino');
 const qrcode = require('qrcode-terminal');
@@ -13,6 +14,29 @@ const {
   updateHistory,
   clearHistory
 } = require('./memory');
+
+// Express server setup for Render deployment
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Health check route
+app.get('/', (req, res) => {
+  res.status(200).json({ 
+    message: 'Server is running', 
+    status: 'OK',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Start Express server
+app.listen(PORT, () => {
+  console.log(`🚀 Express server is running on port ${PORT}`);
+  console.log(`📡 Health check available at: http://localhost:${PORT}/`);
+});
 
 const notesDbId = process.env.NOTION_NOTES_DATABASE_ID;
 const todoDbId = process.env.NOTION_TODO_DATABASE_ID;
