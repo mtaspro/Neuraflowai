@@ -7,7 +7,7 @@ class MemoryManager {
     this.db = null;
     this.collection = null;
     this.isConnected = false;
-    this.MAX_HISTORY = 10; // Keep only the last 10 messages per user
+    this.MAX_HISTORY = 5; // Keep only the last 5 messages per user
     this.SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
   }
 

@@ -5,7 +5,7 @@ const path = require('path');
 const MEMORY_FILE = path.join(__dirname, 'memory.json');
 let memory = new Map();
 
-const MAX_HISTORY = 10; // Keep only the last 10 messages per user
+const MAX_HISTORY = 5; // Keep only the last 5 messages per user
 const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
 
 // 🔄 Load memory from file
