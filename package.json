@@ -7,7 +7,8 @@
     "node": "20.x"
   },
   "scripts": {
-    "start": "node index.js"
+    "download-tessdata": "mkdir -p tesseract-lang && curl -L -o tesseract-lang/ben.traineddata https://github.com/tesseract-ocr/tessdata/raw/main/ben.traineddata && curl -L -o tesseract-lang/eng.traineddata https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata",
+    "start": "npm run download-tessdata && node index.js"
   },
   "dependencies": {
     "@notionhq/client": "^3.1.3",
