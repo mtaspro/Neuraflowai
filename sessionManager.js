@@ -18,7 +18,7 @@ class SessionManager {
         useUnifiedTopology: true,
       });
       await this.client.connect();
-      this.db = this.client.db('whatsapp-bot');
+      this.db = this.client.db('auth_info');
       this.collection = this.db.collection('sessions');
       this.isConnected = true;
       console.log('✅ MongoDB Session Manager connected successfully');

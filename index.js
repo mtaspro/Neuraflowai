@@ -57,25 +57,16 @@ async function getGroupMembers(sock, groupId) {
 }
 
 async function startBot() {
-  // Initialize MongoDB session manager
-  await sessionManager.connect();
+  // Use Baileys' built-in auth state with the restored folder
+  const { state, saveCreds } = await useMultiFileAuthState('auth_info');
   
-  // Create custom auth state using MongoDB
-  const authState = {
-    creds: await sessionManager.loadSession({ sessionId: 'whatsapp-bot' }),
-    keys: {}
-  };
-
   const sock = makeWASocket({
-    auth: authState,
+    auth: state,
     logger: P({ level: 'silent' }),
     printQRInTerminal: true,
   });
 
-  // Save credentials to MongoDB when updated
-  sock.ev.on('creds.update', async (creds) => {
-    await sessionManager.saveSession('whatsapp-bot', creds);
-  });
+  sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify' || !messages[0]?.message) return;
