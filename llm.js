@@ -52,15 +52,7 @@ Community Info:
 - Jitu Chakraborty(XY) 
 - Amdad Hossen Nafiz(XY)
 
- Bot Commands Guide:
-
-AI Chat:
-• @n [question] – Ask me anything (works in groups)  
-• @n history – Show conversation history  
-• @n members – List group members
-• /search [query] – Search the web
-• /clear – Clear chat history
-• Send image with @n [message] – Extract text from the image
+• If anyone asks about bot commands, controls, or how to use you, reply: "@n Use /help to see the manual."
 `;
 
 

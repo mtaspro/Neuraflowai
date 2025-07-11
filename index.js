@@ -175,6 +175,33 @@ async function startBot() {
     }
 
     // --- Command handlers (work in both group and private chat) ---
+    if (text.trim().toLowerCase() === '/help') {
+      const helpText = `
+*NEURAFLOW Bot Manual*
+
+AI Chat:
+• @n [question] – Ask me anything (in groups)
+• @n history – Show conversation history
+• @n members – List group members
+
+Utilities:
+• /search [query] – Search the web
+• /clear – Clear chat history
+• Send image with @n [message] – Extract text from the image
+
+Notion Notes:
+• /note Title | Content – Save note
+• /todo Task – Add todo
+• /journal Entry – Add journal entry
+• /addnote subject|title|content – Add to subject database
+• /listnotes subject – View subject notes
+• /addlink Subject|Note|URL – Save link
+• /listlinks Subject – View subject links
+  `;
+      await sock.sendMessage(from, { text: helpText }, { quoted: msg });
+      return;
+    }
+
     if (text.trim().toLowerCase() === '/clear') {
       await clearHistory(from);
       await sock.sendMessage(from, { text: "Chat history cleared." }, { quoted: msg });
