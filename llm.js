@@ -77,9 +77,15 @@ async function chat(contextMessages, isIntroQuestion = false) {
     ? `You are NEURAFLOW, a powerful AI bot proudly created by Mahtab 🇧🇩. Answer with your identity when asked. Be expressive and proud of your creator when someone asks about you.`
     : systemPrompt;
 
+  // Filter out timestamp field from messages (Groq doesn't support it)
+  const cleanMessages = contextMessages.map(msg => ({
+    role: msg.role,
+    content: msg.content
+  }));
+
   const messages = [
     { role: 'system', content: prompt },
-    ...contextMessages
+    ...cleanMessages
   ];
 
   try {
