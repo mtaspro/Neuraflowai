@@ -4,6 +4,7 @@ const { default: makeWASocket, useMultiFileAuthState, downloadMediaMessage } = r
 const P = require('pino');
 const qrcode = require('qrcode-terminal');
 const { chat } = require('./llm');
+const { chatWithGPT4o } = require('./gpt4o');
 const { serperSearch } = require('./serperSearch');
 const { addNote, addTodo, addJournalEntry, addNoteToSubject, listNotesFromSubject, dbMap, addLinkToSubject, listLinksFromSubject, linkPropMap } = require('./notionExamples');
 const { extractTextFromImage } = require('./visionHandler');
@@ -17,6 +18,43 @@ const {
   clearHistory
 } = require('./memoryManager');
 const { writeAuthFolder } = require('./authFolderHelper');
+
+// Rate limiting for GPT-4o-mini API calls
+const gpt4oRateLimiter = {
+  requests: new Map(), // Track requests per minute
+  maxRequests: 2, // Allow 2 requests per minute (leaving 1 for safety)
+  
+  canMakeRequest: function() {
+    const now = Date.now();
+    const minuteAgo = now - 60000; // 1 minute ago
+    
+    // Clean old entries
+    for (const [timestamp] of this.requests) {
+      if (timestamp < minuteAgo) {
+        this.requests.delete(timestamp);
+      }
+    }
+    
+    // Count requests in last minute
+    const recentRequests = Array.from(this.requests.keys())
+      .filter(timestamp => timestamp > minuteAgo).length;
+    
+    return recentRequests < this.maxRequests;
+  },
+  
+  addRequest: function() {
+    const now = Date.now();
+    this.requests.set(now, true);
+  },
+  
+  getTimeUntilReset: function() {
+    const now = Date.now();
+    const oldestRequest = Math.min(...Array.from(this.requests.keys()));
+    const timeElapsed = now - oldestRequest;
+    const timeRemaining = 60000 - timeElapsed; // 60 seconds - elapsed time
+    return Math.max(0, Math.ceil(timeRemaining / 1000)); // Return seconds
+  }
+};
 
 // Express server setup for Render deployment
 const app = express();
@@ -181,6 +219,8 @@ async function startBot() {
 
 AI Chat:
 • @n [question] – Ask me anything (in groups)
+• /ben [question] – Use GPT-4o-mini for responses
+• /statusben – Check GPT-4o-mini rate limit status
 • @n history – Show conversation history
 • @n members – List group members
 
@@ -189,16 +229,31 @@ Utilities:
 • /clear – Clear chat history
 • Send image with @n [message] – Extract text from the image
 
-Notion Notes:
-• /note Title | Content – Save note
-• /todo Task – Add todo
-• /journal Entry – Add journal entry
-• /addnote subject|title|content – Add to subject database
-• /listnotes subject – View subject notes
-• /addlink Subject|Note|URL – Save link
-• /listlinks Subject – View subject links
   `;
       await sock.sendMessage(from, { text: helpText }, { quoted: msg });
+      return;
+    }
+
+    // /gpt-status command - Check GPT-4o-mini rate limit status
+    if (text.trim().toLowerCase() === '/statusben') {
+      const canMakeRequest = gpt4oRateLimiter.canMakeRequest();
+      const timeRemaining = gpt4oRateLimiter.getTimeUntilReset();
+      
+      let statusText = `🤖 *Bengali response Status*\n\n`;
+      
+      if (canMakeRequest) {
+        statusText += `✅ *Available* - You can make a request now!\n`;
+        statusText += `📊 Rate limit: 3 requests per minute\n`;
+        statusText += `⏰ Next reset: ${timeRemaining} seconds\n`;
+      } else {
+        statusText += `⏰ *Rate Limited* - Please wait before making another request\n`;
+        statusText += `⏳ Time remaining: ${timeRemaining} seconds\n`;
+        statusText += `📊 Rate limit: 3 requests per minute\n`;
+      }
+      
+      statusText += `\n💡 Use /ben [question] to talk in Bengali`;
+      
+      await sock.sendMessage(from, { text: statusText }, { quoted: msg });
       return;
     }
 
@@ -212,6 +267,55 @@ Notion Notes:
       const query = text.slice(8).trim();
       const results = await serperSearch(query);
       await sock.sendMessage(from, { text: results }, { quoted: msg });
+      return;
+    }
+
+    // /ben command - Use GPT-4o-mini for responses
+    if (text.toLowerCase().startsWith('/ben ')) {
+      const userQuery = text.slice(5).trim();
+      if (!userQuery) {
+        await sock.sendMessage(from, { text: "Usage: /ben [your question or message]" }, { quoted: msg });
+        return;
+      }
+
+      // Check rate limit before making API call
+      if (!gpt4oRateLimiter.canMakeRequest()) {
+        const timeRemaining = gpt4oRateLimiter.getTimeUntilReset();
+        await sock.sendMessage(from, { 
+          text: `⏰ Bengali responses limit reached! Please wait for ${timeRemaining} seconds before trying again.\n\n3 requests per minute. You can make another request in ${timeRemaining} seconds.` 
+        }, { quoted: msg });
+        return;
+      }
+
+      try {
+        // Add request to rate limiter
+        gpt4oRateLimiter.addRequest();
+        
+        // Show typing indicator
+        await sock.sendPresenceUpdate('composing', from);
+
+        const isIntroQuestion = /(who are you|tui ke|tumi ke|mahtab ke|neuraflow)/.test(userQuery.toLowerCase());
+        
+        // Use reduced history (3 instead of 5) for GPT-4o-mini to save tokens
+        const reducedHistory = await getHistory(from, 3);
+        
+        const contextMessages = [
+          ...reducedHistory,
+          { role: 'user', content: userQuery }
+        ];
+
+        const reply = await chatWithGPT4o(contextMessages, isIntroQuestion);
+        if (!reply) return;
+
+        // Update history with reduced limit for GPT-4o-mini
+        await updateHistory(from, userQuery, reply, 3);
+
+        await sock.sendMessage(from, { text: reply }, { quoted: msg });
+
+      } catch (error) {
+        console.error("❌ GPT-4o error:", error?.response?.data || error.message);
+        await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your message. Please try again." }, { quoted: msg });
+      }
       return;
     }
 

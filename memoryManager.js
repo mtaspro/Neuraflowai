@@ -41,7 +41,7 @@ class MemoryManager {
   }
 
   // Get conversation history for a user
-  async getHistory(userId) {
+  async getHistory(userId, maxHistory = this.MAX_HISTORY) {
     if (!this.isConnected) await this.connect();
     
     try {
@@ -62,7 +62,10 @@ class MemoryManager {
         );
       }
       
-      return filteredMessages;
+      // Limit to specified maxHistory (default is this.MAX_HISTORY)
+      const limitedMessages = filteredMessages.slice(-maxHistory * 2);
+      
+      return limitedMessages;
     } catch (error) {
       console.error('❌ Error getting history:', error);
       return [];
@@ -70,7 +73,7 @@ class MemoryManager {
   }
 
   // Update conversation history
-  async updateHistory(userId, userMsg, botReply) {
+  async updateHistory(userId, userMsg, botReply, maxHistory = this.MAX_HISTORY) {
     if (!this.isConnected) await this.connect();
     
     try {
@@ -81,11 +84,11 @@ class MemoryManager {
       ];
 
       // Get current messages and add new ones
-      const currentMessages = await this.getHistory(userId);
+      const currentMessages = await this.getHistory(userId, maxHistory);
       const allMessages = [...currentMessages, ...newMessages];
       
-      // Keep only the last MAX_HISTORY * 2 messages (user + bot pairs)
-      const limitedMessages = allMessages.slice(-this.MAX_HISTORY * 2);
+      // Keep only the last maxHistory * 2 messages (user + bot pairs)
+      const limitedMessages = allMessages.slice(-maxHistory * 2);
       
       // Update or insert the user's conversation
       await this.collection.updateOne(
@@ -100,7 +103,7 @@ class MemoryManager {
         { upsert: true }
       );
       
-      console.log(`💾 Memory updated for user: ${userId} (${limitedMessages.length} messages)`);
+      console.log(`💾 Memory updated for user: ${userId} (${limitedMessages.length} messages, maxHistory: ${maxHistory})`);
     } catch (error) {
       console.error('❌ Error updating history:', error);
     }

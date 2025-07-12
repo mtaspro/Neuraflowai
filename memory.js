@@ -28,18 +28,20 @@ function saveMemory() {
 }
 
 // 🧠 Get conversation history for a user
-function getHistory(userId) {
-  return memory.get(userId) || [];
+function getHistory(userId, maxHistory = MAX_HISTORY) {
+  const messages = memory.get(userId) || [];
+  // Limit to specified maxHistory
+  return messages.slice(-maxHistory * 2);
 }
 
 // 📝 Update conversation history (NO sender info)
-function updateHistory(userId, userMsg, botReply) {
+function updateHistory(userId, userMsg, botReply, maxHistory = MAX_HISTORY) {
   let arr = memory.get(userId) || [];
   arr.push({ role: 'user', content: userMsg, timestamp: Date.now() });
   arr.push({ role: 'assistant', content: botReply, timestamp: Date.now() });
   const now = Date.now();
   arr = arr.filter(m => !m.timestamp || (now - m.timestamp <= SEVEN_DAYS));
-  if (arr.length > MAX_HISTORY * 2) arr = arr.slice(-MAX_HISTORY * 2);
+  if (arr.length > maxHistory * 2) arr = arr.slice(-maxHistory * 2);
   memory.set(userId, arr);
   saveMemory();
 }
