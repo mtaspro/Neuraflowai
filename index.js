@@ -197,6 +197,108 @@ async function startBot() {
       const lowerText = text.toLowerCase();
       const userQuery = lowerText.replace(/^@n\s*/, '');
 
+      // Check if /think command is present (HIGHEST PRIORITY)
+      if (userQuery.includes('/think ')) {
+        const thinkMatch = userQuery.match(/\/think\s+(.+)/);
+        if (thinkMatch) {
+          const thinkQuery = thinkMatch[1].trim();
+          
+          // Check rate limit before making API call
+          if (!deepseekRateLimiter.canMakeRequest()) {
+            const timeRemaining = deepseekRateLimiter.getTimeUntilReset();
+            await sock.sendMessage(from, { 
+              text: `⏰ DeepSeek reasoning limit reached! Please wait for ${timeRemaining} seconds before trying again.\n\n15 requests per minute. You can make another request in ${timeRemaining} seconds.` 
+            }, { quoted: msg });
+            return;
+          }
+
+          try {
+            // Add request to rate limiter
+            deepseekRateLimiter.addRequest();
+            
+            // Show typing indicator
+            await sock.sendPresenceUpdate('composing', from);
+
+            const isIntroQuestion = /(who are you|tui ke|tumi ke|mahtab ke|neuraflow)/.test(thinkQuery.toLowerCase());
+            
+            // Use moderate history (10) for DeepSeek reasoning tasks
+            const reasoningHistory = await getHistory(from, 10);
+            
+            const contextMessages = [
+              ...reasoningHistory,
+              { role: 'user', content: thinkQuery }
+            ];
+
+            const reply = await thinkWithDeepSeek(contextMessages, isIntroQuestion);
+            if (!reply) return;
+
+            // Update history with moderate limit for DeepSeek
+            await updateHistory(from, thinkQuery, reply, 10);
+
+            await sock.sendMessage(from, {
+              text: `@${sender.split('@')[0]} ${reply}`,
+              mentions: [sender]
+            }, { quoted: msg });
+
+          } catch (error) {
+            console.error("❌ DeepSeek error:", error?.response?.data || error.message);
+            await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your reasoning request. Please try again." }, { quoted: msg });
+          }
+          return;
+        }
+      }
+
+      // Check if /ben command is present (LOWER PRIORITY)
+      if (userQuery.includes('/ben ')) {
+        const benMatch = userQuery.match(/\/ben\s+(.+)/);
+        if (benMatch) {
+          const benQuery = benMatch[1].trim();
+          
+          // Check rate limit before making API call
+          if (!qwenRateLimiter.canMakeRequest()) {
+            const timeRemaining = qwenRateLimiter.getTimeUntilReset();
+            await sock.sendMessage(from, { 
+              text: `⏰ Qwen API limit reached! Please wait for ${timeRemaining} seconds before trying again.\n\n20 requests per minute. You can make another request in ${timeRemaining} seconds.` 
+            }, { quoted: msg });
+            return;
+          }
+
+          try {
+            // Add request to rate limiter
+            qwenRateLimiter.addRequest();
+            
+            // Show typing indicator
+            await sock.sendPresenceUpdate('composing', from);
+
+            const isIntroQuestion = /(who are you|tui ke|tumi ke|mahtab ke|neuraflow)/.test(benQuery.toLowerCase());
+            
+            // Use maximum history (50) for Qwen due to efficient system prompt
+            const maximumHistory = await getHistory(from, 50);
+            
+            const contextMessages = [
+              ...maximumHistory,
+              { role: 'user', content: benQuery }
+            ];
+
+            const reply = await chatWithQwen(contextMessages, isIntroQuestion);
+            if (!reply) return;
+
+            // Update history with maximum limit for Qwen
+            await updateHistory(from, benQuery, reply, 50);
+
+            await sock.sendMessage(from, {
+              text: `@${sender.split('@')[0]} ${reply}`,
+              mentions: [sender]
+            }, { quoted: msg });
+
+          } catch (error) {
+            console.error("❌ Qwen error:", error?.response?.data || error.message);
+            await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your message. Please try again." }, { quoted: msg });
+          }
+          return;
+        }
+      }
+
       // Show last few messages in memory
       if (userQuery.startsWith('history') || userQuery.startsWith('show memory')) {
         const historyArr = await getHistory(from) || [];
@@ -220,7 +322,7 @@ async function startBot() {
         return;
       }
 
-      // --- AI reply logic ---
+      // --- Default AI reply logic (when no specific command) ---
       const isIntroQuestion = /(who are you|tui ke|tumi ke|mahtab ke|neuraflow)/.test(lowerText);
       console.log(`📩 Message from ${from}: ${text}`);
 
@@ -257,8 +359,8 @@ async function startBot() {
 
 AI Chat:
 • @n [question] – Ask me anything (in groups)
+• /think [question] – Use DeepSeek for reasoning and analysis (Priority)
 • /ben [question] – Use Qwen3-235B for responses
-• /think [question] – Use DeepSeek for reasoning and analysis
 • /statusben – Check Qwen rate limit status
 • /thinkstatus – Check DeepSeek rate limit status
 • @n history – Show conversation history
@@ -333,56 +435,7 @@ Utilities:
       return;
     }
 
-    // /ben command - Use Qwen3-235B for responses
-    if (text.toLowerCase().startsWith('/ben ')) {
-      const userQuery = text.slice(5).trim();
-      if (!userQuery) {
-        await sock.sendMessage(from, { text: "Usage: /ben [your question or message]" }, { quoted: msg });
-        return;
-      }
-
-      // Check rate limit before making API call
-      if (!qwenRateLimiter.canMakeRequest()) {
-        const timeRemaining = qwenRateLimiter.getTimeUntilReset();
-        await sock.sendMessage(from, { 
-          text: `⏰ Qwen API limit reached! Please wait for ${timeRemaining} seconds before trying again.\n\n20 requests per minute. You can make another request in ${timeRemaining} seconds.` 
-        }, { quoted: msg });
-        return;
-      }
-
-      try {
-        // Add request to rate limiter
-        qwenRateLimiter.addRequest();
-        
-        // Show typing indicator
-        await sock.sendPresenceUpdate('composing', from);
-
-        const isIntroQuestion = /(who are you|tui ke|tumi ke|mahtab ke|neuraflow)/.test(userQuery.toLowerCase());
-        
-        // Use maximum history (50 instead of 20) for Qwen due to efficient system prompt
-        const maximumHistory = await getHistory(from, 50);
-        
-        const contextMessages = [
-          ...maximumHistory,
-          { role: 'user', content: userQuery }
-        ];
-
-        const reply = await chatWithQwen(contextMessages, isIntroQuestion);
-        if (!reply) return;
-
-        // Update history with maximum limit for Qwen
-        await updateHistory(from, userQuery, reply, 50);
-
-        await sock.sendMessage(from, { text: reply }, { quoted: msg });
-
-      } catch (error) {
-        console.error("❌ Qwen error:", error?.response?.data || error.message);
-        await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your message. Please try again." }, { quoted: msg });
-      }
-      return;
-    }
-
-    // /think command - Use DeepSeek for reasoning and analysis
+    // /think command - Use DeepSeek for reasoning and analysis (HIGHER PRIORITY)
     if (text.toLowerCase().startsWith('/think ')) {
       const userQuery = text.slice(7).trim();
       if (!userQuery) {
@@ -427,6 +480,55 @@ Utilities:
       } catch (error) {
         console.error("❌ DeepSeek error:", error?.response?.data || error.message);
         await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your reasoning request. Please try again." }, { quoted: msg });
+      }
+      return;
+    }
+
+    // /ben command - Use Qwen3-235B for responses (LOWER PRIORITY)
+    if (text.toLowerCase().startsWith('/ben ')) {
+      const userQuery = text.slice(5).trim();
+      if (!userQuery) {
+        await sock.sendMessage(from, { text: "Usage: /ben [your question or message]" }, { quoted: msg });
+        return;
+      }
+
+      // Check rate limit before making API call
+      if (!qwenRateLimiter.canMakeRequest()) {
+        const timeRemaining = qwenRateLimiter.getTimeUntilReset();
+        await sock.sendMessage(from, { 
+          text: `⏰ Qwen API limit reached! Please wait for ${timeRemaining} seconds before trying again.\n\n20 requests per minute. You can make another request in ${timeRemaining} seconds.` 
+        }, { quoted: msg });
+        return;
+      }
+
+      try {
+        // Add request to rate limiter
+        qwenRateLimiter.addRequest();
+        
+        // Show typing indicator
+        await sock.sendPresenceUpdate('composing', from);
+
+        const isIntroQuestion = /(who are you|tui ke|tumi ke|mahtab ke|neuraflow)/.test(userQuery.toLowerCase());
+        
+        // Use maximum history (50 instead of 20) for Qwen due to efficient system prompt
+        const maximumHistory = await getHistory(from, 50);
+        
+        const contextMessages = [
+          ...maximumHistory,
+          { role: 'user', content: userQuery }
+        ];
+
+        const reply = await chatWithQwen(contextMessages, isIntroQuestion);
+        if (!reply) return;
+
+        // Update history with maximum limit for Qwen
+        await updateHistory(from, userQuery, reply, 50);
+
+        await sock.sendMessage(from, { text: reply }, { quoted: msg });
+
+      } catch (error) {
+        console.error("❌ Qwen error:", error?.response?.data || error.message);
+        await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your message. Please try again." }, { quoted: msg });
       }
       return;
     }
