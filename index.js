@@ -6,6 +6,7 @@ const qrcode = require('qrcode-terminal');
 const { chat } = require('./llm');
 const { chatWithQwen } = require('./gpt4o');
 const { thinkWithDeepSeek } = require('./deepseek');
+const { summarizeWithQwen } = require('./summaryHandler');
 const { serperSearch } = require('./serperSearch');
 const { addNote, addTodo, addJournalEntry, addNoteToSubject, listNotesFromSubject, dbMap, addLinkToSubject, listLinksFromSubject, linkPropMap } = require('./notionExamples');
 const { extractTextFromImage } = require('./visionHandler');
@@ -24,6 +25,43 @@ const { writeAuthFolder } = require('./authFolderHelper');
 const qwenRateLimiter = {
   requests: new Map(), // Track requests per minute
   maxRequests: 20, // Allow 20 requests per minute (very generous for free tier)
+  
+  canMakeRequest: function() {
+    const now = Date.now();
+    const minuteAgo = now - 60000; // 1 minute ago
+    
+    // Clean old entries
+    for (const [timestamp] of this.requests) {
+      if (timestamp < minuteAgo) {
+        this.requests.delete(timestamp);
+      }
+    }
+    
+    // Count requests in last minute
+    const recentRequests = Array.from(this.requests.keys())
+      .filter(timestamp => timestamp > minuteAgo).length;
+    
+    return recentRequests < this.maxRequests;
+  },
+  
+  addRequest: function() {
+    const now = Date.now();
+    this.requests.set(now, true);
+  },
+  
+  getTimeUntilReset: function() {
+    const now = Date.now();
+    const oldestRequest = Math.min(...Array.from(this.requests.keys()));
+    const timeElapsed = now - oldestRequest;
+    const timeRemaining = 60000 - timeElapsed; // 60 seconds - elapsed time
+    return Math.max(0, Math.ceil(timeRemaining / 1000)); // Return seconds
+  }
+};
+
+// Rate limiting for Summary API calls (OpenRouter - Free tier)
+const summaryRateLimiter = {
+  requests: new Map(), // Track requests per minute
+  maxRequests: 15, // Allow 15 requests per minute (summarization tasks need more time)
   
   canMakeRequest: function() {
     const now = Date.now();
@@ -361,8 +399,10 @@ AI Chat:
 • @n [question] – Ask me anything (in groups)
 • /think [question] – Use DeepSeek for reasoning and analysis (Priority)
 • /ben [question] – Use Qwen3-235B for responses
+• /summary [text] – Summarize text using Qwen3-235B
 • /statusben – Check Qwen rate limit status
 • /thinkstatus – Check DeepSeek rate limit status
+• /summarystatus – Check Summary rate limit status
 • @n history – Show conversation history
 • @n members – List group members
 
@@ -417,6 +457,29 @@ Utilities:
       }
       
       statusText += `\n💡 Use /think [question] for logical reasoning and analysis`;
+      
+      await sock.sendMessage(from, { text: statusText }, { quoted: msg });
+      return;
+    }
+
+    // /summary-status command - Check Summary rate limit status
+    if (text.trim().toLowerCase() === '/summarystatus') {
+      const canMakeRequest = summaryRateLimiter.canMakeRequest();
+      const timeRemaining = summaryRateLimiter.getTimeUntilReset();
+      
+      let statusText = `📝 *Summary Status*\n\n`;
+      
+      if (canMakeRequest) {
+        statusText += `✅ *Available* - You can make a summary request now!\n`;
+        statusText += `📊 Rate limit: 15 requests per minute\n`;
+        statusText += `⏰ Next reset: ${timeRemaining} seconds\n`;
+      } else {
+        statusText += `⏰ *Rate Limited* - Please wait before making another request\n`;
+        statusText += `⏳ Time remaining: ${timeRemaining} seconds\n`;
+        statusText += `📊 Rate limit: 15 requests per minute\n`;
+      }
+      
+      statusText += `\n💡 Use /summary [text] for text summarization`;
       
       await sock.sendMessage(from, { text: statusText }, { quoted: msg });
       return;
@@ -529,6 +592,48 @@ Utilities:
       } catch (error) {
         console.error("❌ Qwen error:", error?.response?.data || error.message);
         await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your message. Please try again." }, { quoted: msg });
+      }
+      return;
+    }
+
+    // /summary command - Use Qwen3-235B for text summarization
+    if (text.toLowerCase().startsWith('/summary ')) {
+      const userQuery = text.slice(9).trim();
+      if (!userQuery) {
+        await sock.sendMessage(from, { text: "Usage: /summary [your text to summarize]" }, { quoted: msg });
+        return;
+      }
+
+      // Check rate limit before making API call
+      if (!summaryRateLimiter.canMakeRequest()) {
+        const timeRemaining = summaryRateLimiter.getTimeUntilReset();
+        await sock.sendMessage(from, { 
+          text: `⏰ Summary API limit reached! Please wait for ${timeRemaining} seconds before trying again.\n\n15 requests per minute. You can make another request in ${timeRemaining} seconds.` 
+        }, { quoted: msg });
+        return;
+      }
+
+      try {
+        // Add request to rate limiter
+        summaryRateLimiter.addRequest();
+        
+        // Show typing indicator
+        await sock.sendPresenceUpdate('composing', from);
+
+        // For summarization, we don't need conversation history
+        const contextMessages = [
+          { role: 'user', content: userQuery }
+        ];
+
+        const reply = await summarizeWithQwen(contextMessages);
+        if (!reply) return;
+
+        // Don't update history for summarization requests to keep it clean
+        await sock.sendMessage(from, { text: reply }, { quoted: msg });
+
+      } catch (error) {
+        console.error("❌ Summary error:", error?.response?.data || error.message);
+        await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your summary request. Please try again." }, { quoted: msg });
       }
       return;
     }
