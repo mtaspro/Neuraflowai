@@ -132,6 +132,43 @@ const deepseekRateLimiter = {
   }
 };
 
+// Rate limiting for LLaMA 3 8B 8192 API calls (Groq - Free tier)
+const llamaRateLimiter = {
+  requests: new Map(), // Track requests per minute
+  maxRequests: 5, // Allow 5 requests per minute (normal chatting)
+  
+  canMakeRequest: function() {
+    const now = Date.now();
+    const minuteAgo = now - 60000; // 1 minute ago
+    
+    // Clean old entries
+    for (const [timestamp] of this.requests) {
+      if (timestamp < minuteAgo) {
+        this.requests.delete(timestamp);
+      }
+    }
+    
+    // Count requests in last minute
+    const recentRequests = Array.from(this.requests.keys())
+      .filter(timestamp => timestamp > minuteAgo).length;
+    
+    return recentRequests < this.maxRequests;
+  },
+  
+  addRequest: function() {
+    const now = Date.now();
+    this.requests.set(now, true);
+  },
+  
+  getTimeUntilReset: function() {
+    const now = Date.now();
+    const oldestRequest = Math.min(...Array.from(this.requests.keys()));
+    const timeElapsed = now - oldestRequest;
+    const timeRemaining = 60000 - timeElapsed; // 60 seconds - elapsed time
+    return Math.max(0, Math.ceil(timeRemaining / 1000)); // Return seconds
+  }
+};
+
 // Express server setup for Render deployment
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -371,12 +408,24 @@ async function startBot() {
       const isIntroQuestion = /(who are you|tui ke|tumi ke|mahtab ke|neuraflow)/.test(lowerText);
       console.log(`📩 Message from ${from}: ${text}`);
 
+      // Check rate limit before making API call
+      if (!llamaRateLimiter.canMakeRequest()) {
+        const timeRemaining = llamaRateLimiter.getTimeUntilReset();
+        await sock.sendMessage(from, { 
+          text: `⏰ LLaMA 3 8B 8192 limit reached! Please wait for ${timeRemaining} seconds before trying again.\n\n5 requests per minute. You can make another request in ${timeRemaining} seconds.` 
+        }, { quoted: msg });
+        return;
+      }
+
       const contextMessages = [
         ...history,
         { role: 'user', content: text }
       ];
 
       try {
+        // Add request to rate limiter
+        llamaRateLimiter.addRequest();
+        
         // Show typing indicator
         await sock.sendPresenceUpdate('composing', from);
 
@@ -410,6 +459,7 @@ AI Chat:
 • /statusben – Check Qwen rate limit status
 • /thinkstatus – Check DeepSeek rate limit status
 • /summarystatus – Check Summary rate limit status
+• /llamastatus – Check LLaMA 3 8B 8192 rate limit status
 • @n history – Show conversation history
 • @n clear – Clear chat history (in groups)
 • @n members – List group members
@@ -488,6 +538,29 @@ Utilities:
       }
       
       statusText += `\n💡 Use /summary [text] for text summarization`;
+      
+      await sock.sendMessage(from, { text: statusText }, { quoted: msg });
+      return;
+    }
+
+    // /llamastatus command - Check LLaMA 3 8B 8192 rate limit status
+    if (text.trim().toLowerCase() === '/llamastatus') {
+      const canMakeRequest = llamaRateLimiter.canMakeRequest();
+      const timeRemaining = llamaRateLimiter.getTimeUntilReset();
+      
+      let statusText = `🦙 *LLaMA 3 8B 8192 Status*\n\n`;
+      
+      if (canMakeRequest) {
+        statusText += `✅ *Available* - You can chat normally now!\n`;
+        statusText += `📊 Rate limit: 5 requests per minute\n`;
+        statusText += `⏰ Next reset: ${timeRemaining} seconds\n`;
+      } else {
+        statusText += `⏰ *Rate Limited* - Please wait before making another request\n`;
+        statusText += `⏳ Time remaining: ${timeRemaining} seconds\n`;
+        statusText += `📊 Rate limit: 5 requests per minute\n`;
+      }
+      
+      statusText += `\n💡 Use @n [question] in groups or just chat normally for LLaMA 3 8B 8192`;
       
       await sock.sendMessage(from, { text: statusText }, { quoted: msg });
       return;
