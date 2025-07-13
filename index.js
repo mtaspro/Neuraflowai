@@ -5,6 +5,7 @@ const P = require('pino');
 const qrcode = require('qrcode-terminal');
 const { chat } = require('./llm');
 const { chatWithQwen } = require('./gpt4o');
+const { thinkWithDeepSeek } = require('./deepseek');
 const { serperSearch } = require('./serperSearch');
 const { addNote, addTodo, addJournalEntry, addNoteToSubject, listNotesFromSubject, dbMap, addLinkToSubject, listLinksFromSubject, linkPropMap } = require('./notionExamples');
 const { extractTextFromImage } = require('./visionHandler');
@@ -23,6 +24,43 @@ const { writeAuthFolder } = require('./authFolderHelper');
 const qwenRateLimiter = {
   requests: new Map(), // Track requests per minute
   maxRequests: 20, // Allow 20 requests per minute (very generous for free tier)
+  
+  canMakeRequest: function() {
+    const now = Date.now();
+    const minuteAgo = now - 60000; // 1 minute ago
+    
+    // Clean old entries
+    for (const [timestamp] of this.requests) {
+      if (timestamp < minuteAgo) {
+        this.requests.delete(timestamp);
+      }
+    }
+    
+    // Count requests in last minute
+    const recentRequests = Array.from(this.requests.keys())
+      .filter(timestamp => timestamp > minuteAgo).length;
+    
+    return recentRequests < this.maxRequests;
+  },
+  
+  addRequest: function() {
+    const now = Date.now();
+    this.requests.set(now, true);
+  },
+  
+  getTimeUntilReset: function() {
+    const now = Date.now();
+    const oldestRequest = Math.min(...Array.from(this.requests.keys()));
+    const timeElapsed = now - oldestRequest;
+    const timeRemaining = 60000 - timeElapsed; // 60 seconds - elapsed time
+    return Math.max(0, Math.ceil(timeRemaining / 1000)); // Return seconds
+  }
+};
+
+// Rate limiting for DeepSeek API calls (OpenRouter - Free tier)
+const deepseekRateLimiter = {
+  requests: new Map(), // Track requests per minute
+  maxRequests: 15, // Allow 15 requests per minute (reasoning tasks need more time)
   
   canMakeRequest: function() {
     const now = Date.now();
@@ -220,7 +258,9 @@ async function startBot() {
 AI Chat:
 • @n [question] – Ask me anything (in groups)
 • /ben [question] – Use Qwen3-235B for responses
+• /think [question] – Use DeepSeek for reasoning and analysis
 • /statusben – Check Qwen rate limit status
+• /thinkstatus – Check DeepSeek rate limit status
 • @n history – Show conversation history
 • @n members – List group members
 
@@ -252,6 +292,29 @@ Utilities:
       }
       
       statusText += `\n💡 Use /ben [question] to use Qwen3-235B via OpenRouter`;
+      
+      await sock.sendMessage(from, { text: statusText }, { quoted: msg });
+      return;
+    }
+
+    // /think-status command - Check DeepSeek rate limit status
+    if (text.trim().toLowerCase() === '/thinkstatus') {
+      const canMakeRequest = deepseekRateLimiter.canMakeRequest();
+      const timeRemaining = deepseekRateLimiter.getTimeUntilReset();
+      
+      let statusText = `🧠 *Reasoning Status*\n\n`;
+      
+      if (canMakeRequest) {
+        statusText += `✅ *Available* - You can make a reasoning request now!\n`;
+        statusText += `📊 Rate limit: 15 requests per minute\n`;
+        statusText += `⏰ Next reset: ${timeRemaining} seconds\n`;
+      } else {
+        statusText += `⏰ *Rate Limited* - Please wait before making another request\n`;
+        statusText += `⏳ Time remaining: ${timeRemaining} seconds\n`;
+        statusText += `📊 Rate limit: 15 requests per minute\n`;
+      }
+      
+      statusText += `\n💡 Use /think [question] for logical reasoning and analysis`;
       
       await sock.sendMessage(from, { text: statusText }, { quoted: msg });
       return;
@@ -315,6 +378,55 @@ Utilities:
       } catch (error) {
         console.error("❌ Qwen error:", error?.response?.data || error.message);
         await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your message. Please try again." }, { quoted: msg });
+      }
+      return;
+    }
+
+    // /think command - Use DeepSeek for reasoning and analysis
+    if (text.toLowerCase().startsWith('/think ')) {
+      const userQuery = text.slice(7).trim();
+      if (!userQuery) {
+        await sock.sendMessage(from, { text: "Usage: /think [your reasoning question or problem]" }, { quoted: msg });
+        return;
+      }
+
+      // Check rate limit before making API call
+      if (!deepseekRateLimiter.canMakeRequest()) {
+        const timeRemaining = deepseekRateLimiter.getTimeUntilReset();
+        await sock.sendMessage(from, { 
+          text: `⏰ DeepSeek reasoning limit reached! Please wait for ${timeRemaining} seconds before trying again.\n\n15 requests per minute. You can make another request in ${timeRemaining} seconds.` 
+        }, { quoted: msg });
+        return;
+      }
+
+      try {
+        // Add request to rate limiter
+        deepseekRateLimiter.addRequest();
+        
+        // Show typing indicator
+        await sock.sendPresenceUpdate('composing', from);
+
+        const isIntroQuestion = /(who are you|tui ke|tumi ke|mahtab ke|neuraflow)/.test(userQuery.toLowerCase());
+        
+        // Use moderate history (10) for DeepSeek reasoning tasks
+        const reasoningHistory = await getHistory(from, 10);
+        
+        const contextMessages = [
+          ...reasoningHistory,
+          { role: 'user', content: userQuery }
+        ];
+
+        const reply = await thinkWithDeepSeek(contextMessages, isIntroQuestion);
+        if (!reply) return;
+
+        // Update history with moderate limit for DeepSeek
+        await updateHistory(from, userQuery, reply, 10);
+
+        await sock.sendMessage(from, { text: reply }, { quoted: msg });
+
+      } catch (error) {
+        console.error("❌ DeepSeek error:", error?.response?.data || error.message);
+        await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your reasoning request. Please try again." }, { quoted: msg });
       }
       return;
     }
