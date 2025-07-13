@@ -349,6 +349,13 @@ async function startBot() {
         return;
       }
 
+      // Clear chat history
+      if (userQuery.startsWith('clear')) {
+        await clearHistory(from);
+        await sock.sendMessage(from, { text: "Chat history cleared.", mentions: [sender] }, { quoted: msg });
+        return;
+      }
+
       // List group members
       if (userQuery.startsWith('members')) {
         const members = await getGroupMembers(sock, from);
@@ -404,11 +411,12 @@ AI Chat:
 • /thinkstatus – Check DeepSeek rate limit status
 • /summarystatus – Check Summary rate limit status
 • @n history – Show conversation history
+• @n clear – Clear chat history (in groups)
 • @n members – List group members
 
 Utilities:
 • /search [query] – Search the web
-• /clear – Clear chat history
+• /clear – Clear chat history (private chat)
 • Send image with @n [message] – Extract text from the image
 
   `;
