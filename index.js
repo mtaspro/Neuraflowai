@@ -4,7 +4,7 @@ const { default: makeWASocket, useMultiFileAuthState, downloadMediaMessage } = r
 const P = require('pino');
 const qrcode = require('qrcode-terminal');
 const { chat } = require('./llm');
-const { chatWithGPT4o } = require('./gpt4o');
+const { chatWithQwen } = require('./gpt4o');
 const { serperSearch } = require('./serperSearch');
 const { addNote, addTodo, addJournalEntry, addNoteToSubject, listNotesFromSubject, dbMap, addLinkToSubject, listLinksFromSubject, linkPropMap } = require('./notionExamples');
 const { extractTextFromImage } = require('./visionHandler');
@@ -19,10 +19,10 @@ const {
 } = require('./memoryManager');
 const { writeAuthFolder } = require('./authFolderHelper');
 
-// Rate limiting for GPT-4o-mini API calls
-const gpt4oRateLimiter = {
+// Rate limiting for Qwen API calls (OpenRouter - Free tier)
+const qwenRateLimiter = {
   requests: new Map(), // Track requests per minute
-  maxRequests: 2, // Allow 2 requests per minute (leaving 1 for safety)
+  maxRequests: 20, // Allow 20 requests per minute (very generous for free tier)
   
   canMakeRequest: function() {
     const now = Date.now();
@@ -219,8 +219,8 @@ async function startBot() {
 
 AI Chat:
 • @n [question] – Ask me anything (in groups)
-• /ben [question] – Use GPT-4o-mini for responses
-• /statusben – Check GPT-4o-mini rate limit status
+• /ben [question] – Use Qwen3-235B for responses
+• /statusben – Check Qwen rate limit status
 • @n history – Show conversation history
 • @n members – List group members
 
@@ -234,24 +234,24 @@ Utilities:
       return;
     }
 
-    // /gpt-status command - Check GPT-4o-mini rate limit status
+    // /qwen-status command - Check Qwen rate limit status
     if (text.trim().toLowerCase() === '/statusben') {
-      const canMakeRequest = gpt4oRateLimiter.canMakeRequest();
-      const timeRemaining = gpt4oRateLimiter.getTimeUntilReset();
+      const canMakeRequest = qwenRateLimiter.canMakeRequest();
+      const timeRemaining = qwenRateLimiter.getTimeUntilReset();
       
-      let statusText = `🤖 *Bengali response Status*\n\n`;
+      let statusText = `🤖 *Qwen3-235B (OpenRouter) Status*\n\n`;
       
       if (canMakeRequest) {
         statusText += `✅ *Available* - You can make a request now!\n`;
-        statusText += `📊 Rate limit: 3 requests per minute\n`;
+        statusText += `📊 Rate limit: 20 requests per minute\n`;
         statusText += `⏰ Next reset: ${timeRemaining} seconds\n`;
       } else {
         statusText += `⏰ *Rate Limited* - Please wait before making another request\n`;
         statusText += `⏳ Time remaining: ${timeRemaining} seconds\n`;
-        statusText += `📊 Rate limit: 3 requests per minute\n`;
+        statusText += `📊 Rate limit: 20 requests per minute\n`;
       }
       
-      statusText += `\n💡 Use /ben [question] to talk in Bengali`;
+      statusText += `\n💡 Use /ben [question] to use Qwen3-235B via OpenRouter`;
       
       await sock.sendMessage(from, { text: statusText }, { quoted: msg });
       return;
@@ -270,7 +270,7 @@ Utilities:
       return;
     }
 
-    // /ben command - Use GPT-4o-mini for responses
+    // /ben command - Use Qwen3-235B for responses
     if (text.toLowerCase().startsWith('/ben ')) {
       const userQuery = text.slice(5).trim();
       if (!userQuery) {
@@ -279,41 +279,41 @@ Utilities:
       }
 
       // Check rate limit before making API call
-      if (!gpt4oRateLimiter.canMakeRequest()) {
-        const timeRemaining = gpt4oRateLimiter.getTimeUntilReset();
+      if (!qwenRateLimiter.canMakeRequest()) {
+        const timeRemaining = qwenRateLimiter.getTimeUntilReset();
         await sock.sendMessage(from, { 
-          text: `⏰ Bengali responses limit reached! Please wait for ${timeRemaining} seconds before trying again.\n\n3 requests per minute. You can make another request in ${timeRemaining} seconds.` 
+          text: `⏰ Qwen API limit reached! Please wait for ${timeRemaining} seconds before trying again.\n\n20 requests per minute. You can make another request in ${timeRemaining} seconds.` 
         }, { quoted: msg });
         return;
       }
 
       try {
         // Add request to rate limiter
-        gpt4oRateLimiter.addRequest();
+        qwenRateLimiter.addRequest();
         
         // Show typing indicator
         await sock.sendPresenceUpdate('composing', from);
 
         const isIntroQuestion = /(who are you|tui ke|tumi ke|mahtab ke|neuraflow)/.test(userQuery.toLowerCase());
         
-        // Use reduced history (3 instead of 5) for GPT-4o-mini to save tokens
-        const reducedHistory = await getHistory(from, 3);
+        // Use maximum history (50 instead of 20) for Qwen due to efficient system prompt
+        const maximumHistory = await getHistory(from, 50);
         
         const contextMessages = [
-          ...reducedHistory,
+          ...maximumHistory,
           { role: 'user', content: userQuery }
         ];
 
-        const reply = await chatWithGPT4o(contextMessages, isIntroQuestion);
+        const reply = await chatWithQwen(contextMessages, isIntroQuestion);
         if (!reply) return;
 
-        // Update history with reduced limit for GPT-4o-mini
-        await updateHistory(from, userQuery, reply, 3);
+        // Update history with maximum limit for Qwen
+        await updateHistory(from, userQuery, reply, 50);
 
         await sock.sendMessage(from, { text: reply }, { quoted: msg });
 
       } catch (error) {
-        console.error("❌ GPT-4o error:", error?.response?.data || error.message);
+        console.error("❌ Qwen error:", error?.response?.data || error.message);
         await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your message. Please try again." }, { quoted: msg });
       }
       return;

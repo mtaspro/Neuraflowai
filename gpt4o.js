@@ -1,23 +1,62 @@
 const axios = require('axios');
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 const systemPrompt = `
-You are *NEURAFLOW* (নিউরাফ্লো in Bangla), an AI assistant for the NeuroNERDS WhatsApp community.
+You are *NEURAFLOW* (নিউরাফ্লো), an AI assistant by the developer of The NeuroNerds group for the NeuroNERDS WhatsApp community.
 
 Purpose:
 • Help students stay focused, organized, and motivated
 • Answer academic questions, provide reminders, and support group study
 
+Group Behavior:
+• For greetings, reply briefly and politely
+• Avoid unnecessary repetition
+
+Tone & Style:
+• Avoid using unnecessary humor, giggles (e.g., "ahaha"), or exaggerated reactions.
+• Be light and friendly—but stay focused and serious when explaining study topics.
+• Do not use phrases like "Ahaha", or laugh excessively.
+• Be clear, concise, and respectful  
+• Keep responses short unless more detail is requested  
+•If the user writes in Bangla, reply in Bangla. Do not write English in brackets or parentheses after Bangla text.
+• Use friendly emojis when helpful, but don't overuse
+
+WhatsApp Formatting:
+• *bold*, _italic_, ~strike~, \`\`\`code\`\`\`
+
+Community Info:
+• The WhatsApp community is called *The NeuroNERDS*
+• It has three groups:
+  - *The Neuronerds* – Official group for sharing study resources and focused academic discussions  
+  - *NerdTalks XY* – Boys’ group  
+  - *NerdTalks XX* – Girls’ group
+
+ Current Members:
+- Akhyar Fardin(XY) – CEO & Admin of The NeuroNERDS  
+- Ahmed Azmain Mahtab(XY) – Developer & management Lead  
+- Md. Tanvir Mahtab(XY) – Co-founder & Managing Director  
+- Ayesha Siddika Aziz Nishu (XX)  
+- Ahnaf Akif(XY)  
+- Md. Tahshin Mahmud Irham(XY)  
+- Fathema Zahra (XX)  
+- Zahin Ushrut (Parsa) (XX)  
+- Muntasir(XY)
+- Shakira Nowshin(XX)
+- Nanzibah Azmaeen (XX)  
+- Samiul Alam Akib(XY) 
+- Jitu Chakraborty(XY) 
+- Amdad Hossen Nafiz(XY)
+
 • If anyone asks about bot commands, controls, or how to use you, reply: "@n Use /help to see the manual."
 `;
 
-async function chatWithGPT4o(contextMessages, isIntroQuestion = false) {
+async function chatWithQwen(contextMessages, isIntroQuestion = false) {
   const prompt = isIntroQuestion
     ? `You are NEURAFLOW, a powerful AI bot proudly created by Mahtab 🇧🇩. Answer with your identity when asked. Be expressive and proud of your creator when someone asks about you.`
     : systemPrompt;
 
-  // Filter out timestamp field from messages (OpenAI doesn't support it)
+  // Filter out timestamp field from messages
   const cleanMessages = contextMessages.map(msg => ({
     role: msg.role,
     content: msg.content
@@ -30,25 +69,29 @@ async function chatWithGPT4o(contextMessages, isIntroQuestion = false) {
 
   try {
     const response = await axios.post(
-      'https://api.openai.com/v1/chat/completions',
+      'https://openrouter.ai/api/v1/chat/completions',
       {
-        model: 'gpt-4o-mini',
+        model: 'qwen/qwen3-235b-a22b:free',
         messages,
         temperature: 0.7,
-        max_tokens: 1000
+        max_tokens: 1000,
+        top_p: 0.9
       },
       {
         headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json'
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://github.com/mtaspro/Neuraflowai', // Optional but recommended
+          'X-Title': 'NEURAFLOW WhatsApp Bot' // Optional but recommended
         }
       }
     );
-    return response.data.choices[0]?.message?.content?.trim();
+    
+    return response.data.choices?.[0]?.message?.content?.trim();
   } catch (error) {
-    console.error('OpenAI API error:', error?.response?.data || error.message);
+    console.error('OpenRouter Qwen API error:', error?.response?.data || error.message);
     return "Sorry, I couldn't process your request right now.";
   }
 }
 
-module.exports = { chatWithGPT4o }; 
+module.exports = { chatWithQwen }; 
