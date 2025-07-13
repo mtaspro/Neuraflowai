@@ -48,7 +48,7 @@ Community Info:
 - Jitu Chakraborty(XY) 
 - Amdad Hossen Nafiz(XY)
 
-• If anyone asks about bot commands, controls, or how to use you, reply: "@n Use /help to see the manual."
+• If anyone asks about bot commands, controls, or how to use you, or how to use you, reply: "@n Use /help to see the manual."
 `;
 
 
