@@ -18,8 +18,8 @@ if (!fs.existsSync(LANG_DIR)) {
 async function extractTextFromImage(imageBuffer, lang = 'ben+eng') {
   try {
     // Check if both traineddata files exist
-    const benPath = path.join(LANG_DIR, 'ben.traineddata');
-    const engPath = path.join(LANG_DIR, 'eng.traineddata');
+    const benPath = path.join(LANG_DIR, 'ben.traineddata.gz');
+    const engPath = path.join(LANG_DIR, 'eng.traineddata.gz');
     if (!fs.existsSync(benPath)) {
       throw new Error('ben.traineddata not found in tesseract-lang folder. Please add it for Bengali OCR.');
     }
