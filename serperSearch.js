@@ -16,15 +16,27 @@ async function serperSearch(query) {
     );
 
     const results = response.data.organic || [];
-    if (results.length === 0) return "No results found.";
+    if (results.length === 0) return null;
 
-    return results.slice(0, 3).map(r =>
-      `*${r.title}*\n${r.snippet}\n${r.link}`
-    ).join('\n\n');
+    // Return raw search data for processing by AI
+    return {
+      query: query,
+      results: results.slice(0, 5) // Get top 5 results for better context
+    };
   } catch (err) {
     console.error('Serper Search Error:', err.response?.data || err.message);
-    return "Sorry, I couldn't fetch web results.";
+    return null;
   }
 }
 
-module.exports = { serperSearch };
+// Keep the old function for backward compatibility
+async function serperSearchFormatted(query) {
+  const searchData = await serperSearch(query);
+  if (!searchData) return "No results found.";
+
+  return searchData.results.slice(0, 3).map(r =>
+    `*${r.title}*\n${r.snippet}\n${r.link}`
+  ).join('\n\n');
+}
+
+module.exports = { serperSearch, serperSearchFormatted };

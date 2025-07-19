@@ -7,7 +7,7 @@ const { chat } = require('./llm');
 const { chatWithQwen, chatWithQwenReasoning } = require('./gpt4o');
 const { thinkWithDeepSeek } = require('./deepseek');
 const { summarizeWithQwen } = require('./summaryHandler');
-const { serperSearch } = require('./serperSearch');
+const { serperSearch, serperSearchFormatted } = require('./serperSearch');
 const { addNote, addTodo, addJournalEntry, addNoteToSubject, listNotesFromSubject, dbMap, addLinkToSubject, listLinksFromSubject, linkPropMap } = require('./notionExamples');
 const { extractTextFromImage } = require('./visionHandler');
 
@@ -465,7 +465,7 @@ AI Chat:
 • @n members – List group members
 
 Utilities:
-• /search [query] – Search the web
+• /search [query] – Search the web and get AI-powered summaries
 • /clear – Clear chat history (private chat)
 • Send image with @n [message] – Extract text from the image
 
@@ -574,8 +574,72 @@ Utilities:
 
     if (text.toLowerCase().startsWith('/search ')) {
       const query = text.slice(8).trim();
-      const results = await serperSearch(query);
-      await sock.sendMessage(from, { text: results }, { quoted: msg });
+      if (!query) {
+        await sock.sendMessage(from, { text: "Usage: /search [your search query]" }, { quoted: msg });
+        return;
+      }
+
+      // Check rate limit before making API call
+      if (!qwenRateLimiter.canMakeRequest()) {
+        const timeRemaining = qwenRateLimiter.getTimeUntilReset();
+        await sock.sendMessage(from, { 
+          text: `⏰ Qwen API limit reached! Please wait for ${timeRemaining} seconds before trying again.\n\n20 requests per minute. You can make another request in ${timeRemaining} seconds.` 
+        }, { quoted: msg });
+        return;
+      }
+
+      try {
+        // Add request to rate limiter
+        qwenRateLimiter.addRequest();
+        
+        // Show typing indicator
+        await sock.sendPresenceUpdate('composing', from);
+
+        // Fetch search results
+        const searchData = await serperSearch(query);
+        if (!searchData || !searchData.results.length) {
+          await sock.sendMessage(from, { text: "No search results found for your query." }, { quoted: msg });
+          return;
+        }
+
+        // Format search results for AI processing
+        const searchContext = searchData.results.map((result, index) => 
+          `Result ${index + 1}:\nTitle: ${result.title}\nSnippet: ${result.snippet}\nURL: ${result.link}`
+        ).join('\n\n');
+
+        // Create prompt for Qwen3-235B
+        const searchPrompt = `Based on the following web search results for "${query}", provide a fluent, comprehensive, and well-organized response. 
+
+Search Results:
+${searchContext}
+
+Please provide a detailed answer that:
+1. Addresses the search query directly
+2. Synthesizes information from multiple sources when relevant
+3. Is written in a natural, conversational tone
+4. Includes key facts and insights from the search results
+5. Responds in the same language as the query (Bangla or English)
+
+Answer:`;
+
+        // Use Qwen3-235B to process the search results
+        const contextMessages = [
+          { role: 'user', content: searchPrompt }
+        ];
+
+        const reply = await chatWithQwen(contextMessages, false);
+        if (!reply) {
+          await sock.sendMessage(from, { text: "Sorry, I couldn't process the search results. Please try again." }, { quoted: msg });
+          return;
+        }
+
+        // Don't update history for search requests to keep it clean
+        await sock.sendMessage(from, { text: reply }, { quoted: msg });
+
+      } catch (error) {
+        console.error("❌ Search error:", error?.response?.data || error.message);
+        await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your search request. Please try again." }, { quoted: msg });
+      }
       return;
     }
 
