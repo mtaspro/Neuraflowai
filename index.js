@@ -323,55 +323,10 @@ async function startBot() {
         }
       }
 
-      // Check if /ben command is present (LOWER PRIORITY)
-      if (userQuery.includes('/ben ')) {
-        const benMatch = userQuery.match(/\/ben\s+(.+)/);
-        if (benMatch) {
-          const benQuery = benMatch[1].trim();
-          
-          // Check rate limit before making API call
-          if (!qwenRateLimiter.canMakeRequest()) {
-            const timeRemaining = qwenRateLimiter.getTimeUntilReset();
-            await sock.sendMessage(from, { 
-              text: `⏰ Qwen API limit reached! Please wait for ${timeRemaining} seconds before trying again.\n\n20 requests per minute. You can make another request in ${timeRemaining} seconds.` 
-            }, { quoted: msg });
-            return;
-          }
-
-          try {
-            // Add request to rate limiter
-            qwenRateLimiter.addRequest();
-            
-            // Show typing indicator
-            await sock.sendPresenceUpdate('composing', from);
-
-            const isIntroQuestion = /(who are you|tui ke|tumi ke|mahtab ke|neuraflow)/.test(benQuery.toLowerCase());
-            
-            // Use maximum history (50) for Qwen due to efficient system prompt
-            const maximumHistory = await getHistory(from, 50);
-            
-            const contextMessages = [
-              ...maximumHistory,
-              { role: 'user', content: benQuery }
-            ];
-
-            const reply = await chatWithQwen(contextMessages, isIntroQuestion);
-            if (!reply) return;
-
-            // Update history with maximum limit for Qwen
-            await updateHistory(from, benQuery, reply, 50);
-
-            await sock.sendMessage(from, {
-              text: `@${sender.split('@')[0]} ${reply}`,
-              mentions: [sender]
-            }, { quoted: msg });
-
-          } catch (error) {
-            console.error("❌ Qwen error:", error?.response?.data || error.message);
-            await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your message. Please try again." }, { quoted: msg });
-          }
-          return;
-        }
+      // DISABLE /ben command in both group and private chat
+      if (text.toLowerCase().startsWith('/ben ') || (isGroup && userQuery && userQuery.includes('/ben '))) {
+        await sock.sendMessage(from, { text: "The /ben command is now disabled. Please use @n [your question] in group chats to use Qwen3-235B!" }, { quoted: msg });
+        return;
       }
 
       // Show last few messages in memory
@@ -409,10 +364,10 @@ async function startBot() {
       console.log(`📩 Message from ${from}: ${text}`);
 
       // Check rate limit before making API call
-      if (!llamaRateLimiter.canMakeRequest()) {
-        const timeRemaining = llamaRateLimiter.getTimeUntilReset();
+      if (!qwenRateLimiter.canMakeRequest()) {
+        const timeRemaining = qwenRateLimiter.getTimeUntilReset();
         await sock.sendMessage(from, { 
-          text: `⏰ LLaMA 3 8B 8192 limit reached! Please wait for ${timeRemaining} seconds before trying again.\n\n5 requests per minute. You can make another request in ${timeRemaining} seconds.` 
+          text: `⏰ Qwen API limit reached! Please wait for ${timeRemaining} seconds before trying again.\n\n20 requests per minute. You can make another request in ${timeRemaining} seconds.` 
         }, { quoted: msg });
         return;
       }
@@ -424,12 +379,12 @@ async function startBot() {
 
       try {
         // Add request to rate limiter
-        llamaRateLimiter.addRequest();
+        qwenRateLimiter.addRequest();
         
         // Show typing indicator
         await sock.sendPresenceUpdate('composing', from);
 
-        const reply = await chat(contextMessages, isIntroQuestion);
+        const reply = await chatWithQwen(contextMessages, isIntroQuestion);
         if (!reply) return;
 
         await updateHistory(from, text, reply);
@@ -440,7 +395,7 @@ async function startBot() {
         }, { quoted: msg });
 
       } catch (error) {
-        console.error("❌ AI error:", error?.response?.data || error.message);
+        console.error("❌ Qwen error:", error?.response?.data || error.message);
         await sock.sendMessage(from, { text: "Sorry, I encountered an error processing your message. Please try again." }, { quoted: msg });
       }
       return;
@@ -452,9 +407,8 @@ async function startBot() {
 *NEURAFLOW Bot Manual*
 
 AI Chat:
-• @n [question] – Ask me anything (in groups)
+• @n [question] – Ask me anything (in groups, powered by Qwen3-235B)
 • /think [question] – Use DeepSeek for reasoning and analysis (Priority)
-• /ben [question] – Use Qwen3-235B for responses
 • /summary [text] – Summarize text using Qwen3-235B
 • /statusben – Check Qwen rate limit status
 • /thinkstatus – Check DeepSeek rate limit status
