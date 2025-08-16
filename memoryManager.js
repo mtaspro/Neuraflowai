@@ -15,10 +15,7 @@ class MemoryManager {
     try {
       const connectionString = process.env.MONGODB_URI || 'mongodb+srv://mowama36:<db_password>@neuraflow-bot.9fmavbm.mongodb.net/?retryWrites=true&w=majority&appName=neuraflow-bot';
       
-      this.client = new MongoClient(connectionString, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-      });
+      this.client = new MongoClient(connectionString);
 
       await this.client.connect();
       this.db = this.client.db('whatsapp-bot');
